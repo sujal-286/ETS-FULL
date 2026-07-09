@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>MapTrack — Image Gallery</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+  *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
+  :root {
+    --bg:#0f1117; --surface:#181c27; --surface2:#1f2435;
+    --border:#2a3047; --accent:#3b82f6; --accent2:#60a5fa;
+    --success:#22c55e; --warn:#f59e0b; --danger:#ef4444;
+    --text:#e2e8f0; --muted:#64748b; --radius:10px;
+    --font:'Inter',sans-serif; --mono:'JetBrains Mono',monospace;
+  }
+  body { font-family:var(--font); background:var(--bg); color:var(--text); min-height:100vh; }
+
+  .topbar { display:flex; align-items:center; gap:12px; padding:0 20px; height:52px; background:var(--surface); border-bottom:1px solid var(--border); position:sticky; top:0; z-index:10; }
+  .logo { font-weight:700; font-size:15px; letter-spacing:.4px; color:var(--accent2); }
+  .logo span { color:var(--text); font-weight:400; }
+  .topbar-sep { flex:1; }
+  .btn { display:inline-flex; align-items:center; gap:6px; padding:6px 14px; border-radius:7px; font-size:13px; font-family:var(--font); font-weight:500; cursor:pointer; border:none; transition:all .15s; text-decoration:none; }
+  .btn-primary { background:var(--accent); color:#fff; }
+  .btn-primary:hover { background:#2563eb; }
+  .btn-ghost { background:transparent; color:var(--muted); border:1px solid var(--border); }
+  .btn-ghost:hover { color:var(--text); border-color:var(--muted); }
+  .badge { font-size:11px; color:var(--muted); background:var(--surface2); border:1px solid var(--border); padding:3px 10px; border-radius:20px; }
+
+  .page { max-width:1200px; margin:0 auto; padding:24px 20px 60px; }
+
+  /* Gallery grid */
+  .gallery-header { display:flex; align-items:center; gap:10px; margin-bottom:16px; }
+  .gallery-title { font-size:15px; font-weight:700; }
+  .gallery-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(230px, 1fr)); gap:16px; }
+  .empty-state { text-align:center; padding:60px 20px; color:var(--muted); font-size:13px; grid-column:1/-1; }
+  .empty-state .big { font-size:36px; margin-bottom:10px; }
+
+  .img-card { background:var(--surface); border:1px solid var(--border); border-radius:12px; overflow:hidden; transition:border-color .15s; }
+  .img-card:hover { border-color:var(--accent); }
+  .img-card img { width:100%; height:160px; object-fit:cover; display:block; background:var(--surface2); cursor:pointer; }
+  .img-card-body { padding:12px 14px; display:flex; flex-direction:column; gap:6px; }
+  .img-row { display:flex; gap:8px; align-items:center; font-size:12px; }
+  .img-row .lbl { color:var(--muted); min-width:16px; }
+  .img-row .val { color:var(--text); font-family:var(--mono); font-size:11px; }
+  .device-badge { display:inline-block; font-size:11px; font-weight:600; color:var(--accent2); background:#1e2d4a; border:1px solid #2563eb44; padding:2px 9px; border-radius:20px; margin-bottom:4px; }
+  .expiry-bar-wrap { height:4px; background:var(--surface2); border-radius:3px; overflow:hidden; margin-top:4px; }
+  .expiry-bar { height:100%; background:var(--success); transition:width 1s linear, background .3s; }
+  .expiry-label { font-size:10px; color:var(--muted); text-align:right; }
+
+  /* Fullscreen viewer */
+  .viewer-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.95); z-index:100; align-items:center; justify-content:center; flex-direction:column; gap:16px; }
+  .viewer-overlay.open { display:flex; }
+  .viewer-overlay img { max-width:90vw; max-height:75vh; border-radius:10px; box-shadow:0 8px 40px #000; }
+  .viewer-meta { display:flex; gap:20px; font-size:12px; color:var(--muted); }
+  .viewer-close { position:absolute; top:18px; right:24px; background:none; border:none; color:var(--muted); font-size:26px; cursor:pointer; }
+  .viewer-close:hover { color:var(--text); }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">MapTrack <span>Image Gallery</span></div>
+  <div class="topbar-sep"></div>
+  <span class="badge" id="live-count">0 live</span>
+  <a class="btn btn-ghost" href="index.html">← Back to Dashboard</a>
+</div>
+
+<div class="page">
+
+  <div class="gallery-header">
+    <div class="gallery-title">🖼 Live Images</div>
+    <span class="badge">expires 5 min after upload</span>
+  </div>
+  <div class="gallery-grid" id="gallery-grid">
+    <div class="empty-state"><div class="big">📭</div>No images yet — waiting for a device to upload.</div>
+  </div>
+
+</div>
+
+<div class="viewer-overlay" id="viewer-overlay" onclick="closeViewer(event)">
+  <button class="viewer-close" onclick="closeViewer(event)">✕</button>
+  <img id="viewer-img" src="" alt=""/>
+  <div class="viewer-meta">
+    <span id="viewer-device"></span>
+    <span id="viewer-time"></span>
+    <span id="viewer-gps"></span>
+  </div>
+</div>
+
+<script>
+const EXPIRY_MS = 5 * 60 * 1000;
+let currentImages = [];
+
+async function refreshGallery() {
+  try {
+    const res = await fetch('/images', { cache:'no-store' });
+    currentImages = await res.json();
+    renderGallery();
+  } catch(e) {
+    console.error('Failed to fetch images', e);
+  }
+}
+setInterval(refreshGallery, 3000);
+setInterval(updateExpiryBars, 1000);
+refreshGallery();
+
+function renderGallery() {
+  const grid = document.getElementById('gallery-grid');
+  document.getElementById('live-count').textContent = `${currentImages.length} live`;
+
+  if (!currentImages.length) {
+    grid.innerHTML = `<div class="empty-state"><div class="big">📭</div>No images yet — waiting for a device to upload.</div>`;
+    return;
+  }
+
+  grid.innerHTML = currentImages.map(img => {
+    const gps = (img.lat!=null && img.lng!=null)
+      ? `${img.lat.toFixed(5)}, ${img.lng.toFixed(5)}`
+      : 'No GPS data';
+    return `
+    <div class="img-card" data-id="${img.id}" data-ts="${img.timestamp}">
+      <img src="/image/${img.id}" alt="" onclick="openViewer('${img.id}')"/>
+      <div class="img-card-body">
+        <span class="device-badge">📟 ${img.device || 'Unknown device'}</span>
+        <div class="img-row"><span class="lbl">📅</span><span class="val">${fmtDate(img.timestamp)}</span></div>
+        <div class="img-row"><span class="lbl">📍</span><span class="val">${gps}</span></div>
+        <div class="expiry-bar-wrap"><div class="expiry-bar" id="bar-${img.id}"></div></div>
+        <div class="expiry-label" id="label-${img.id}"></div>
+      </div>
+    </div>`;
+  }).join('');
+
+  updateExpiryBars();
+}
+
+function updateExpiryBars() {
+  const now = Date.now();
+  currentImages.forEach(img => {
+    const ts = new Date(img.timestamp).getTime();
+    const elapsed = now - ts;
+    const remaining = Math.max(0, EXPIRY_MS - elapsed);
+    const pct = Math.max(0, Math.min(100, (remaining / EXPIRY_MS) * 100));
+    const bar = document.getElementById('bar-'+img.id);
+    const label = document.getElementById('label-'+img.id);
+    if (bar) {
+      bar.style.width = pct + '%';
+      bar.style.background = pct > 30 ? 'var(--success)' : (pct > 10 ? 'var(--warn)' : 'var(--danger)');
+    }
+    if (label) {
+      const secs = Math.ceil(remaining/1000);
+      label.textContent = secs > 0 ? `expires in ${secs}s` : 'expiring…';
+    }
+  });
+}
+
+function openViewer(id) {
+  const img = currentImages.find(i=>i.id===id); if(!img) return;
+  document.getElementById('viewer-img').src = '/image/'+img.id;
+  document.getElementById('viewer-device').textContent = '📟 ' + (img.device || 'Unknown device');
+  document.getElementById('viewer-time').textContent = '📅 ' + fmtDate(img.timestamp);
+  document.getElementById('viewer-gps').textContent = '📍 ' + ((img.lat!=null && img.lng!=null) ? `${img.lat.toFixed(5)}, ${img.lng.toFixed(5)}` : 'No GPS data');
+  document.getElementById('viewer-overlay').classList.add('open');
+}
+function closeViewer(e) {
+  if (e.target.id !== 'viewer-overlay' && e.target.tagName !== 'BUTTON') return;
+  document.getElementById('viewer-overlay').classList.remove('open');
+}
+
+function fmtDate(s) {
+  try { return new Date(s).toLocaleString('en-IN',{dateStyle:'medium',timeStyle:'short'}); }
+  catch { return s; }
+}
+</script>
+</body>
+</html>
