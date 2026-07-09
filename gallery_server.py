@@ -16,13 +16,21 @@ Endpoints:
                          Query params: ?device=..&lat=..&lng=..
   GET  /images       -> JSON list of currently-live image metadata
   GET  /image/<id>   -> raw JPEG bytes for one image
-  GET  /             -> serves image_gallery.html
+  GET  /             -> serves index.html (dashboard)
+  GET  /gallery      -> serves image_gallery.html
 
-Run:
+The dashboard (index.html) pulls its GPS trail data straight from
+Google Sheets (CSV export + Apps Script) in the browser via config.csvUrl
+and config.scriptUrl — Sheets is the database, this server never touches
+that data. This server's only job is the image gallery: receiving
+uploads, holding them in memory, and serving both HTML pages.
+
+Run locally:
     pip install flask
     python gallery_server.py
-Then open http://<this-machine's-IP>:5000/ (same IP your ESP32
-already points at in `serverUrl`).
+Then open http://<this-machine's-IP>:5000/ — dashboard at /, gallery at
+/gallery. In production (Render etc.) this is run via gunicorn instead;
+see the deploy instructions.
 """
 
 from flask import Flask, request, jsonify, send_from_directory, Response
@@ -95,12 +103,16 @@ def serve_image(img_id):
 
 
 @app.route("/")
+def dashboard_page():
+    # Dashboard is the landing page. It reads/writes its data via the
+    # Google Sheets CSV export + Apps Script endpoints configured in its
+    # own Config tab — no server-side involvement needed for that part.
+    return send_from_directory(BASE_DIR, "index.html")
+
+
 @app.route("/gallery")
 @app.route("/image_gallery.html")
 def gallery_page():
-    # This deployment only hosts the gallery — the MapTrack dashboard
-    # (index.html) stays local and talks to Google Sheets directly,
-    # so it isn't served from here.
     return send_from_directory(BASE_DIR, "image_gallery.html")
 
 

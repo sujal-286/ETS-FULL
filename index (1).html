@@ -1,0 +1,900 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>MapTrack — Field Database</title>
+<link href="https://unpkg.com/maplibre-gl@4.1.3/dist/maplibre-gl.css" rel="stylesheet"/>
+<script src="https://unpkg.com/maplibre-gl@4.1.3/dist/maplibre-gl.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+  *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
+  :root {
+    --bg:#0f1117; --surface:#181c27; --surface2:#1f2435;
+    --border:#2a3047; --accent:#3b82f6; --accent2:#60a5fa;
+    --success:#22c55e; --warn:#f59e0b; --danger:#ef4444;
+    --text:#e2e8f0; --muted:#64748b; --radius:10px;
+    --font:'Inter',sans-serif; --mono:'JetBrains Mono',monospace;
+  }
+  body { font-family:var(--font); background:var(--bg); color:var(--text); display:flex; flex-direction:column; height:100vh; overflow:hidden; }
+
+  /* ── Topbar ── */
+  .topbar { display:flex; align-items:center; gap:12px; padding:0 20px; height:52px; background:var(--surface); border-bottom:1px solid var(--border); flex-shrink:0; z-index:10; }
+  .logo { font-weight:700; font-size:15px; letter-spacing:.4px; color:var(--accent2); }
+  .logo span { color:var(--text); font-weight:400; }
+  .topbar-sep { flex:1; }
+  .status-pill { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--muted); background:var(--surface2); border:1px solid var(--border); padding:4px 10px; border-radius:20px; }
+  .dot { width:7px; height:7px; border-radius:50%; background:var(--muted); }
+  .dot.ok { background:var(--success); box-shadow:0 0 6px var(--success); }
+  .dot.err { background:var(--danger); }
+  .dot.warn { background:var(--warn); }
+  .btn { display:inline-flex; align-items:center; gap:6px; padding:6px 14px; border-radius:7px; font-size:13px; font-family:var(--font); font-weight:500; cursor:pointer; border:none; transition:all .15s; }
+  .btn-primary { background:var(--accent); color:#fff; }
+  .btn-primary:hover { background:#2563eb; }
+  .btn-ghost { background:transparent; color:var(--muted); border:1px solid var(--border); }
+  .btn-ghost:hover { color:var(--text); border-color:var(--muted); }
+  .btn-danger { background:#450a0a; color:var(--danger); border:1px solid #7f1d1d; }
+  .btn-danger:hover { background:#7f1d1d; }
+  .btn-sm { padding:4px 10px; font-size:12px; }
+
+  /* ── Layout ── */
+  .workspace { display:grid; grid-template-columns:340px 1fr; flex:1; overflow:hidden; }
+  .sidebar { display:flex; flex-direction:column; background:var(--surface); border-right:1px solid var(--border); overflow:hidden; }
+  .tabs { display:flex; border-bottom:1px solid var(--border); flex-shrink:0; }
+  .tab { flex:1; text-align:center; padding:11px 6px; font-size:12px; font-weight:500; color:var(--muted); cursor:pointer; border-bottom:2px solid transparent; transition:.15s; user-select:none; }
+  .tab.active { color:var(--accent2); border-bottom-color:var(--accent2); }
+  .tab-panel { display:none; flex:1; flex-direction:column; overflow:hidden; }
+  .tab-panel.active { display:flex; }
+
+  /* ── Entries ── */
+  .entries-header { padding:12px 16px; display:flex; align-items:center; gap:8px; border-bottom:1px solid var(--border); flex-shrink:0; }
+  .entries-header input { flex:1; }
+  .entries-count { font-size:11px; color:var(--muted); background:var(--surface2); border:1px solid var(--border); padding:2px 8px; border-radius:12px; }
+  .entries-list { flex:1; overflow-y:auto; padding:8px; }
+  .entries-list::-webkit-scrollbar { width:4px; }
+  .entries-list::-webkit-scrollbar-thumb { background:var(--border); border-radius:4px; }
+
+  /* ── Entry card with thumbnail ── */
+  .entry-card { background:var(--surface2); border:1px solid var(--border); border-radius:var(--radius); margin-bottom:6px; cursor:pointer; transition:all .15s; overflow:hidden; }
+  .entry-card:hover { border-color:var(--accent); }
+  .entry-card.selected { border-color:var(--accent); background:#1e2d4a; }
+  .entry-thumb { width:100%; height:110px; object-fit:cover; display:block; background:var(--surface); }
+  .entry-thumb-placeholder { width:100%; height:60px; background:var(--surface); display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:11px; }
+  .entry-info { padding:10px 12px; position:relative; }
+  .entry-name { font-size:13px; font-weight:600; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .entry-meta { font-size:11px; color:var(--muted); margin-top:3px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .entry-coords { font-family:var(--mono); font-size:10px; color:var(--muted); margin-top:2px; }
+  .entry-actions { display:flex; gap:4px; margin-top:6px; }
+  .icon-btn { background:var(--surface); border:1px solid var(--border); color:var(--muted); border-radius:5px; width:26px; height:26px; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:12px; transition:.12s; }
+  .icon-btn:hover { color:var(--text); border-color:var(--muted); }
+  .icon-btn.del:hover { color:var(--danger); border-color:var(--danger); }
+  .icon-btn.view:hover { color:var(--accent2); border-color:var(--accent2); }
+
+  .empty-state { text-align:center; padding:40px 20px; color:var(--muted); font-size:13px; line-height:1.7; }
+  .empty-state .big { font-size:32px; margin-bottom:8px; }
+
+  /* ── Form ── */
+  .form-panel { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:12px; }
+  .form-panel::-webkit-scrollbar { width:4px; }
+  .form-panel::-webkit-scrollbar-thumb { background:var(--border); border-radius:4px; }
+  .field-group { display:flex; flex-direction:column; gap:5px; }
+  label { font-size:11px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.6px; }
+  input, textarea, select { background:var(--surface2); border:1px solid var(--border); color:var(--text); border-radius:7px; padding:8px 11px; font-size:13px; font-family:var(--font); outline:none; transition:border-color .15s; width:100%; }
+  input:focus, textarea:focus { border-color:var(--accent); }
+  textarea { resize:vertical; min-height:60px; }
+  .hint { font-size:11px; color:var(--muted); line-height:1.5; }
+  .hint a { color:var(--accent2); }
+  .coord-row { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .section-title { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.8px; color:var(--muted); padding-bottom:6px; border-bottom:1px solid var(--border); }
+  .form-actions { display:flex; gap:8px; padding-top:4px; }
+  .form-actions .btn { flex:1; justify-content:center; }
+  .pick-notice { background:#1e2d4a; border:1px solid #2563eb44; border-radius:8px; padding:10px 12px; font-size:12px; color:var(--accent2); line-height:1.6; }
+  .csv-box { background:#0f2040; border:1px solid #2563eb55; border-radius:9px; padding:12px 14px; display:flex; flex-direction:column; gap:8px; }
+  .csv-box label { color:var(--accent2); }
+  .csv-box .hint { color:#60a5fa99; }
+  .config-panel { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:14px; }
+  .config-panel::-webkit-scrollbar { width:4px; }
+  .config-panel::-webkit-scrollbar-thumb { background:var(--border); border-radius:4px; }
+
+  /* ── Map ── */
+  #map { width:100%; height:100%; }
+  .map-fab { position:absolute; z-index:5; display:flex; gap:8px; }
+  .map-fab.top-right { top:14px; right:14px; }
+  .map-fab.bottom-left { bottom:30px; left:14px; }
+  .fab-btn { background:var(--surface); border:1px solid var(--border); color:var(--text); border-radius:8px; padding:8px 14px; font-size:12px; font-weight:500; font-family:var(--font); cursor:pointer; display:flex; align-items:center; gap:6px; transition:.15s; box-shadow:0 2px 8px #0006; }
+  .fab-btn:hover { background:var(--surface2); border-color:var(--muted); }
+  .no-entries-map { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:20px 28px; text-align:center; font-size:13px; color:var(--muted); pointer-events:none; box-shadow:0 4px 20px #000a; max-width:240px; }
+
+  /* ── Detail popup (map) ── */
+  .detail-popup { display:none; position:absolute; z-index:20; bottom:50px; right:14px; width:300px; background:var(--surface); border:1px solid var(--border); border-radius:12px; overflow:hidden; box-shadow:0 8px 32px #000a; }
+  .detail-popup.open { display:block; }
+  .popup-header { padding:12px 14px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:8px; }
+  .popup-title { font-size:14px; font-weight:600; flex:1; }
+  .popup-close { background:none; border:none; color:var(--muted); cursor:pointer; font-size:16px; }
+  .popup-thumb { width:100%; height:160px; object-fit:cover; display:block; cursor:pointer; background:var(--surface2); }
+  .popup-thumb:hover { opacity:0.9; }
+  .popup-thumb-label { font-size:10px; color:var(--muted); text-align:center; padding:4px; background:var(--surface2); cursor:pointer; }
+  .popup-thumb-label:hover { color:var(--accent2); }
+  .popup-body { padding:12px 14px; display:flex; flex-direction:column; gap:8px; }
+  .popup-row { display:flex; gap:8px; align-items:flex-start; font-size:12px; }
+  .popup-row .lbl { color:var(--muted); min-width:60px; flex-shrink:0; }
+  .popup-row .val { color:var(--text); word-break:break-word; }
+  .popup-actions { display:flex; gap:6px; padding-top:4px; }
+  .popup-actions .btn { flex:1; justify-content:center; font-size:12px; }
+
+  /* ── FULLSCREEN IMAGE VIEWER ── */
+  .img-viewer { display:none; position:fixed; inset:0; z-index:200; background:rgba(0,0,0,0.96); flex-direction:column; }
+  .img-viewer.open { display:flex; }
+  .viewer-header { display:flex; align-items:center; gap:12px; padding:14px 20px; flex-shrink:0; background:rgba(0,0,0,0.5); }
+  .viewer-title { font-size:15px; font-weight:600; flex:1; }
+  .viewer-counter { font-size:12px; color:var(--muted); }
+  .viewer-close { background:none; border:none; color:var(--muted); cursor:pointer; font-size:22px; line-height:1; padding:4px; }
+  .viewer-close:hover { color:var(--text); }
+  .viewer-body { flex:1; display:flex; align-items:center; justify-content:center; position:relative; overflow:hidden; }
+  .viewer-img { max-width:90%; max-height:90%; object-fit:contain; border-radius:8px; box-shadow:0 8px 40px #000; transition:opacity .2s; }
+  .viewer-nav { position:absolute; top:50%; transform:translateY(-50%); background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); color:#fff; border-radius:50%; width:48px; height:48px; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:20px; transition:.15s; }
+  .viewer-nav:hover { background:rgba(255,255,255,0.18); }
+  .viewer-nav.prev { left:16px; }
+  .viewer-nav.next { right:16px; }
+  .viewer-footer { padding:12px 20px; flex-shrink:0; background:rgba(0,0,0,0.5); }
+  .viewer-strip { display:flex; gap:8px; overflow-x:auto; padding:4px 0; justify-content:center; }
+  .viewer-strip::-webkit-scrollbar { height:3px; }
+  .viewer-strip::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+  .strip-thumb { width:60px; height:60px; object-fit:cover; border-radius:6px; cursor:pointer; border:2px solid transparent; opacity:0.6; transition:.15s; flex-shrink:0; }
+  .strip-thumb.active { border-color:var(--accent2); opacity:1; }
+  .viewer-info { display:flex; gap:16px; margin-top:8px; font-size:11px; color:var(--muted); }
+
+  /* ── Toast ── */
+  #toast-container { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); z-index:999; display:flex; flex-direction:column; gap:6px; pointer-events:none; }
+  .toast { background:var(--surface2); border:1px solid var(--border); color:var(--text); padding:10px 18px; border-radius:8px; font-size:13px; box-shadow:0 4px 16px #000a; animation:slideUp .2s ease; white-space:nowrap; }
+  .toast.ok { border-color:var(--success); color:var(--success); }
+  .toast.err { border-color:var(--danger); color:var(--danger); }
+  .toast.warn { border-color:var(--warn); color:var(--warn); }
+  @keyframes slideUp { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+
+  /* ── Modal ── */
+  .modal-overlay { display:none; position:fixed; inset:0; background:#000a; z-index:100; align-items:center; justify-content:center; }
+  .modal-overlay.open { display:flex; }
+  .modal { background:var(--surface); border:1px solid var(--border); border-radius:14px; width:min(560px,92vw); max-height:85vh; overflow-y:auto; padding:24px; display:flex; flex-direction:column; gap:14px; }
+  .modal h2 { font-size:16px; font-weight:700; }
+  .modal p { font-size:13px; color:var(--muted); line-height:1.6; }
+  .modal code { font-family:var(--mono); background:var(--surface2); border:1px solid var(--border); border-radius:5px; padding:2px 7px; font-size:11px; color:var(--accent2); word-break:break-all; }
+  .modal pre { background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:12px; font-size:11px; font-family:var(--mono); overflow-x:auto; line-height:1.6; color:var(--accent2); }
+  .modal .step { background:var(--surface2); border:1px solid var(--border); border-radius:9px; padding:12px 14px; }
+  .modal .step-num { font-size:11px; font-weight:700; color:var(--accent); text-transform:uppercase; letter-spacing:.6px; margin-bottom:6px; }
+  .badge { font-size:10px; font-weight:600; padding:2px 7px; border-radius:10px; text-transform:uppercase; letter-spacing:.4px; }
+  .badge-blue { background:#1e3a5f; color:var(--accent2); }
+  .maplibregl-popup-content { background:var(--surface) !important; color:var(--text) !important; border:1px solid var(--border) !important; border-radius:10px !important; padding:0 !important; box-shadow:0 4px 20px #000a !important; }
+  .maplibregl-popup-tip { display:none; }
+</style>
+</head>
+<body>
+
+<!-- TOPBAR -->
+<div class="topbar">
+  <div class="logo">MapTrack <span>Field DB</span></div>
+  <div class="status-pill">
+    <div class="dot" id="conn-dot"></div>
+    <span id="conn-label">Not connected</span>
+  </div>
+  <div class="topbar-sep"></div>
+  <a class="btn btn-ghost btn-sm" href="image_gallery.html">🖼 Gallery</a>
+  <button class="btn btn-ghost btn-sm" onclick="openSetupModal()">⚙ Setup</button>
+  <button class="btn btn-primary btn-sm" onclick="syncFromSheet()">↻ Sync</button>
+</div>
+
+<!-- WORKSPACE -->
+<div class="workspace">
+  <div class="sidebar">
+    <div class="tabs">
+      <div class="tab active" onclick="switchTab('entries')">📍 Entries</div>
+      <div class="tab" onclick="switchTab('add')">＋ Add</div>
+      <div class="tab" onclick="switchTab('config')">🔗 Sheet</div>
+    </div>
+
+    <!-- ENTRIES TAB -->
+    <div class="tab-panel active" id="tab-entries">
+      <div class="entries-header">
+        <input type="text" placeholder="Search devices…" id="search-input" oninput="filterEntries()"/>
+        <span class="entries-count" id="entries-count">0</span>
+      </div>
+      <div class="entries-list" id="entries-list">
+        <div class="empty-state"><div class="big">📭</div>Paste your CSV URL in <b>Sheet</b> tab and hit <b>↻ Sync</b>.</div>
+      </div>
+    </div>
+
+    <!-- ADD TAB -->
+    <div class="tab-panel" id="tab-add">
+      <div class="form-panel">
+        <div class="section-title" id="form-section-title">New Entry</div>
+        <div id="pick-notice" class="pick-notice" style="display:none">📌 Click map to pick coordinates.</div>
+        <div class="field-group"><label>Name / Title *</label><input id="f-name" type="text" placeholder="e.g. Site A"/></div>
+        <div class="coord-row">
+          <div class="field-group"><label>Latitude *</label><input id="f-lat" type="number" step="any"/></div>
+          <div class="field-group"><label>Longitude *</label><input id="f-lng" type="number" step="any"/></div>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="startPickMode()" id="pick-btn">📍 Pick on Map</button>
+        <div class="field-group"><label>Date &amp; Time</label><input id="f-datetime" type="datetime-local"/></div>
+        <div class="field-group"><label>Category</label><input id="f-category" type="text" placeholder="Inspection, Survey…"/></div>
+        <div class="field-group"><label>Notes</label><textarea id="f-notes" rows="3"></textarea></div>
+        <div class="field-group">
+          <label>Google Drive Image URLs (one per line)</label>
+          <textarea id="f-images" rows="3" placeholder="https://drive.google.com/uc?export=view&id=FILE_ID"></textarea>
+          <span class="hint">Use direct Drive URLs. Apps Script returns these automatically.</span>
+        </div>
+        <input type="hidden" id="f-row-id"/>
+        <div class="form-actions">
+          <button class="btn btn-ghost" onclick="resetForm()">Cancel</button>
+          <button class="btn btn-primary" onclick="submitEntry()" id="submit-btn">Save to Sheet</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- CONFIG TAB -->
+    <div class="tab-panel" id="tab-config">
+      <div class="config-panel">
+        <div class="section-title">📄 Google Sheet Connection</div>
+        <div class="csv-box">
+          <label>★ Published CSV URL</label>
+          <input id="cfg-csv-url" type="text" placeholder="https://docs.google.com/spreadsheets/d/…/pub?output=csv"/>
+          <span class="hint">File → Share → Publish to web → CSV → Copy link</span>
+        </div>
+        <div class="field-group">
+          <label>Apps Script Web App URL</label>
+          <input id="cfg-script-url" type="text" placeholder="https://script.google.com/macros/s/…/exec"/>
+          <span class="hint">Handles write + Google Drive upload. See Setup guide.</span>
+        </div>
+        <button class="btn btn-primary" onclick="saveConfig()">Save &amp; Connect</button>
+
+        <div class="section-title" style="margin-top:8px">Column Mapping</div>
+        <span class="hint">Map your sheet columns (A=1, B=2 …)</span>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <div class="field-group"><label>Name col #</label><input id="col-name" type="number" value="1" min="1"/></div>
+          <div class="field-group"><label>Lat col #</label><input id="col-lat" type="number" value="2" min="1"/></div>
+          <div class="field-group"><label>Lng col #</label><input id="col-lng" type="number" value="3" min="1"/></div>
+          <div class="field-group"><label>Date col #</label><input id="col-date" type="number" value="4" min="1"/></div>
+          <div class="field-group"><label>Category col #</label><input id="col-cat" type="number" value="5" min="1"/></div>
+          <div class="field-group"><label>Notes col #</label><input id="col-notes" type="number" value="6" min="1"/></div>
+          <div class="field-group"><label>Images col #</label><input id="col-imgs" type="number" value="7" min="1"/></div>
+          <div class="field-group"><label>Row ID col #</label><input id="col-id" type="number" value="8" min="1"/></div>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="saveColumnMap()">Save Column Map</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAP -->
+  <div style="position:relative;overflow:hidden;">
+    <div id="map"></div>
+    <div class="map-fab top-right">
+      <button class="fab-btn" onclick="map.flyTo({zoom:map.getZoom()+1})">＋</button>
+      <button class="fab-btn" onclick="map.flyTo({zoom:map.getZoom()-1})">－</button>
+      <button class="fab-btn" onclick="locateMe()">◎</button>
+    </div>
+    <div class="map-fab bottom-left">
+      <button class="fab-btn" onclick="fitAllMarkers()">⛶ Locate Device</button>
+    </div>
+    <div id="no-entries-map" class="no-entries-map">No entries yet.<br/>Sync your sheet to load devices.</div>
+
+    <!-- MAP DETAIL POPUP -->
+    <div class="detail-popup" id="detail-popup">
+      <div class="popup-header">
+        <span class="popup-title" id="dp-name">—</span>
+        <button class="popup-close" onclick="closeDetailPopup()">✕</button>
+      </div>
+      <!-- Clickable thumbnail -->
+      <div id="dp-thumb-wrap" style="display:none">
+        <img id="dp-thumb" class="popup-thumb" src="" alt="" onclick="openViewerFromPopup()"/>
+        <div class="popup-thumb-label" onclick="openViewerFromPopup()">🔍 Click to view full screen</div>
+      </div>
+      <div class="popup-body">
+        <div class="popup-row"><span class="lbl">📅 When</span><span class="val" id="dp-date">—</span></div>
+        <div class="popup-row"><span class="lbl">🏷 Category</span><span class="val" id="dp-cat">—</span></div>
+        <div class="popup-row"><span class="lbl">📍 Coords</span><span class="val" id="dp-coords" style="font-family:var(--mono);font-size:11px">—</span></div>
+        <div class="popup-row"><span class="lbl">📝 Notes</span><span class="val" id="dp-notes" style="font-size:12px;line-height:1.5">—</span></div>
+        <div class="popup-actions">
+          <button class="btn btn-ghost btn-sm" onclick="openViewerFromPopup()" id="dp-view-btn" style="display:none">🖼 View Images</button>
+          <button class="btn btn-ghost btn-sm" onclick="editFromPopup()">✏ Edit</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteFromPopup()">🗑 Delete</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════
+     FULLSCREEN IMAGE VIEWER
+══════════════════════════════════════ -->
+<div class="img-viewer" id="img-viewer">
+  <div class="viewer-header">
+    <span class="viewer-title" id="viewer-title">—</span>
+    <span class="viewer-counter" id="viewer-counter"></span>
+    <button class="viewer-close" onclick="closeViewer()">✕</button>
+  </div>
+  <div class="viewer-body">
+    <button class="viewer-nav prev" id="viewer-prev" onclick="viewerNav(-1)">‹</button>
+    <img class="viewer-img" id="viewer-img" src="" alt=""/>
+    <button class="viewer-nav next" id="viewer-next" onclick="viewerNav(1)">›</button>
+  </div>
+  <div class="viewer-footer">
+    <div class="viewer-strip" id="viewer-strip"></div>
+    <div class="viewer-info">
+      <span id="viewer-coords"></span>
+      <span id="viewer-date"></span>
+      <span id="viewer-cat"></span>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<!-- SETUP MODAL -->
+<div class="modal-overlay" id="setup-modal">
+  <div class="modal">
+    <h2>⚙ Setup Guide — Google Drive + Sheets</h2>
+
+    <div class="step">
+      <div class="step-num">Step 1 — Sheet structure</div>
+      <p>Create a Google Sheet with this exact header row:</p>
+      <p><code>Name | Latitude | Longitude | DateTime | Category | Notes | Images | RowID</code></p>
+      <p style="margin-top:8px">The <b>Images</b> column stores Google Drive direct URLs (comma or newline separated). The Apps Script fills this automatically.</p>
+    </div>
+
+    <div class="step">
+      <div class="step-num">Step 2 — Create a Google Drive folder</div>
+      <p>In Google Drive, create a folder called <b>MapTrack Photos</b>. Right-click → Share → Anyone with link → Viewer. Copy the folder ID from the URL.</p>
+    </div>
+
+    <div class="step">
+      <div class="step-num">Step 3 — Apps Script (handles write + Drive upload)</div>
+      <p>In your Sheet: Extensions → Apps Script → paste this script → Deploy → Web App → Execute as Me → Anyone → copy URL.</p>
+      <pre>
+// ── CHANGE THIS to your Drive folder ID ──
+const FOLDER_ID = 'YOUR_DRIVE_FOLDER_ID';
+
+function doPost(e) {
+  var ss  = SpreadsheetApp.getActiveSpreadsheet();
+  var sh  = ss.getActiveSheet();
+  var data = JSON.parse(e.postData.contents);
+  var action = data.action;
+
+  if (action === 'append') {
+    sh.appendRow([data.name, data.lat, data.lng,
+      data.datetime, data.category, data.notes,
+      data.images, data.rowId]);
+
+  } else if (action === 'update') {
+    var rows = sh.getDataRange().getValues();
+    for (var i=1; i&lt;rows.length; i++) {
+      if (String(rows[i][7])===String(data.rowId)) {
+        sh.getRange(i+1,1,1,8).setValues([[
+          data.name, data.lat, data.lng,
+          data.datetime, data.category,
+          data.notes, data.images, data.rowId
+        ]]);
+        break;
+      }
+    }
+  } else if (action === 'delete') {
+    var rows = sh.getDataRange().getValues();
+    for (var i=1; i&lt;rows.length; i++) {
+      if (String(rows[i][7])===String(data.rowId)) {
+        sh.deleteRow(i+1); break;
+      }
+    }
+  } else if (action === 'uploadImage') {
+    // Upload base64 image → Google Drive
+    // Returns direct view URL
+    var folder = DriveApp.getFolderById(FOLDER_ID);
+    var blob = Utilities.newBlob(
+      Utilities.base64Decode(data.imageBase64),
+      'image/jpeg',
+      data.filename || ('photo_' + Date.now() + '.jpg')
+    );
+    var file = folder.createFile(blob);
+    file.setSharing(
+      DriveApp.Access.ANYONE_WITH_LINK,
+      DriveApp.Permission.VIEW
+    );
+    var fileId  = file.getId();
+    var viewUrl = 'https://drive.google.com/uc?export=view&id=' + fileId;
+    return ContentService
+      .createTextOutput(JSON.stringify({ status:'ok', url: viewUrl, fileId: fileId }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  return ContentService
+    .createTextOutput(JSON.stringify({ status:'ok' }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function doGet(e) {
+  return ContentService.createTextOutput('OK');
+}
+      </pre>
+    </div>
+
+    <div class="step">
+      <div class="step-num">Step 4 — Publish Sheet for reading</div>
+      <p>File → Share → Publish to web → CSV → Publish → copy URL → paste into <b>★ Published CSV URL</b> field in the Sheet tab.</p>
+    </div>
+
+    <div class="step">
+      <div class="step-num">Step 5 — ESP32 image upload flow</div>
+      <p>Your ESP32-CAM sends the photo as base64 to the Apps Script URL with <code>action: "uploadImage"</code>. The script saves it to Drive and returns the direct URL. Then a second call with <code>action: "append"</code> saves the URL + GPS to the Sheet. The code I gave you earlier handles this automatically.</p>
+    </div>
+
+    <button class="btn btn-primary" onclick="document.getElementById('setup-modal').classList.remove('open')">Got it</button>
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════
+//  STATE
+// ══════════════════════════════════════════
+let entries = [], config = {};
+let colMap = { name:0, lat:1, lng:2, date:3, cat:4, notes:5, imgs:6, id:7 };
+let currentMarker = null, pickMode = false, activeDetailId = null;
+let viewerImages = [], viewerIdx = 0;
+// Map is now gated on device selection: nothing is plotted until a
+// device name is picked from the sidebar list.
+let selectedDevice = null;
+
+// ══════════════════════════════════════════
+//  INIT
+// ══════════════════════════════════════════
+loadConfig();
+loadLocalEntries();
+
+const map = new maplibregl.Map({
+  container:'map',
+  style:{ version:8, sources:{ osm:{ type:'raster', tiles:['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize:256, attribution:'© OpenStreetMap contributors' }}, layers:[{ id:'osm', type:'raster', source:'osm' }] },
+  center:[72.8777,19.0760], zoom:10
+});
+map.addControl(new maplibregl.ScaleControl({unit:'metric'}), 'bottom-right');
+map.addControl(new maplibregl.NavigationControl({showCompass:true}), 'top-right');
+map.on('load', () => { renderAllMarkers(); updateConnectionStatus(); });
+map.on('click', (e) => {
+  if (!pickMode) return;
+  document.getElementById('f-lat').value = e.lngLat.lat.toFixed(6);
+  document.getElementById('f-lng').value = e.lngLat.lng.toFixed(6);
+  stopPickMode(); toast('Coordinates picked ✓','ok');
+});
+
+// ══════════════════════════════════════════
+//  CONFIG
+// ══════════════════════════════════════════
+function loadConfig() {
+  try {
+    config = JSON.parse(localStorage.getItem('maptrack_config') || '{}');
+    colMap = JSON.parse(localStorage.getItem('maptrack_colmap') || JSON.stringify(colMap));
+    if (config.csvUrl)    document.getElementById('cfg-csv-url').value    = config.csvUrl;
+    if (config.scriptUrl) document.getElementById('cfg-script-url').value = config.scriptUrl;
+    document.getElementById('col-name').value  = colMap.name+1;
+    document.getElementById('col-lat').value   = colMap.lat+1;
+    document.getElementById('col-lng').value   = colMap.lng+1;
+    document.getElementById('col-date').value  = colMap.date+1;
+    document.getElementById('col-cat').value   = colMap.cat+1;
+    document.getElementById('col-notes').value = colMap.notes+1;
+    document.getElementById('col-imgs').value  = colMap.imgs+1;
+    document.getElementById('col-id').value    = colMap.id+1;
+  } catch(e) {}
+}
+function saveConfig() {
+  config.csvUrl    = document.getElementById('cfg-csv-url').value.trim();
+  config.scriptUrl = document.getElementById('cfg-script-url').value.trim();
+  localStorage.setItem('maptrack_config', JSON.stringify(config));
+  updateConnectionStatus();
+  toast('Config saved ✓','ok');
+}
+function saveColumnMap() {
+  colMap = {
+    name:  +document.getElementById('col-name').value-1,
+    lat:   +document.getElementById('col-lat').value-1,
+    lng:   +document.getElementById('col-lng').value-1,
+    date:  +document.getElementById('col-date').value-1,
+    cat:   +document.getElementById('col-cat').value-1,
+    notes: +document.getElementById('col-notes').value-1,
+    imgs:  +document.getElementById('col-imgs').value-1,
+    id:    +document.getElementById('col-id').value-1,
+  };
+  localStorage.setItem('maptrack_colmap', JSON.stringify(colMap));
+  toast('Column map saved ✓','ok');
+}
+function updateConnectionStatus() {
+  const dot=document.getElementById('conn-dot'), lbl=document.getElementById('conn-label');
+  if (config.csvUrl && config.scriptUrl) { dot.className='dot ok'; lbl.textContent='Read + Write connected'; }
+  else if (config.csvUrl) { dot.className='dot warn'; lbl.textContent='Read-only'; }
+  else { dot.className='dot err'; lbl.textContent='Not connected'; }
+}
+
+// ══════════════════════════════════════════
+//  LOCAL CACHE
+// ══════════════════════════════════════════
+function saveLocalEntries() { localStorage.setItem('maptrack_entries', JSON.stringify(entries)); }
+function loadLocalEntries() {
+  try { entries = JSON.parse(localStorage.getItem('maptrack_entries')||'[]'); renderEntriesList(); } catch(e) {}
+}
+
+// ══════════════════════════════════════════
+//  SYNC
+// ══════════════════════════════════════════
+async function syncFromSheet() {
+  const csvUrl = config.csvUrl || document.getElementById('cfg-csv-url').value.trim();
+  if (!csvUrl) { toast('Paste your CSV URL in the Sheet tab first','err'); switchTab('config'); return; }
+  const url = csvUrl.includes('?') ? csvUrl+'&cb='+Date.now() : csvUrl+'?cb='+Date.now();
+  try {
+    toast('Syncing…');
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('HTTP '+res.status);
+    const text = await res.text();
+    if (!text || text.trim().length < 5) { toast('CSV is empty','err'); return; }
+    const rows = parseCSV(text);
+    if (rows.length < 2) { toast('No data rows found','err'); return; }
+    const parsed = rows.slice(1).map((r,i) => ({
+      id:       (r[colMap.id]||'').trim() || ('local-'+Date.now()+'-'+i),
+      name:     (r[colMap.name]||'').trim(),
+      lat:      parseFloat(r[colMap.lat])||0,
+      lng:      parseFloat(r[colMap.lng])||0,
+      datetime: (r[colMap.date]||'').trim(),
+      category: (r[colMap.cat]||'').trim(),
+      notes:    (r[colMap.notes]||'').trim(),
+      images:   (r[colMap.imgs]||'').trim(),
+    })).filter(e => e.lat!==0 && e.lng!==0 && e.name);
+    if (!parsed.length) { toast('No valid entries — check column mapping','err'); return; }
+    entries = parsed;
+    saveLocalEntries(); renderEntriesList(); renderAllMarkers();
+    const deviceCount = getDeviceList().length;
+    toast(`✓ Synced ${entries.length} point${entries.length===1?'':'s'} across ${deviceCount} device${deviceCount===1?'':'s'}`, 'ok');
+  } catch(err) {
+    console.error(err);
+    toast('Sync failed: '+err.message,'err');
+  }
+}
+
+function parseCSV(text) {
+  const rows=[]; let row=[],cur='',inQ=false;
+  for (let i=0;i<text.length;i++) {
+    const c=text[i];
+    if (c==='"') { if(inQ&&text[i+1]==='"'){cur+='"';i++;}else inQ=!inQ; }
+    else if (c===','&&!inQ) { row.push(cur.trim());cur=''; }
+    else if ((c==='\n'||c==='\r')&&!inQ) { row.push(cur.trim());rows.push(row);row=[];cur='';if(c==='\r'&&text[i+1]==='\n')i++; }
+    else cur+=c;
+  }
+  if(cur||row.length){row.push(cur.trim());rows.push(row);}
+  return rows.filter(r=>r.some(c=>c));
+}
+
+// ══════════════════════════════════════════
+//  SHEET WRITE
+// ══════════════════════════════════════════
+async function sheetWrite(payload) {
+  if (!config.scriptUrl) { toast('No Script URL — saved locally only','warn'); return false; }
+  try {
+    const res = await fetch(config.scriptUrl, { method:'POST', body:JSON.stringify(payload), headers:{'Content-Type':'application/json'} });
+    if (!res.ok) throw new Error(res.status);
+    return await res.json();
+  } catch(e) { toast('Sheet write failed — locally only','err'); return false; }
+}
+
+// ══════════════════════════════════════════
+//  IMAGE UPLOAD TO GOOGLE DRIVE via Apps Script
+// ══════════════════════════════════════════
+async function uploadImageToDrive(base64Data, filename) {
+  if (!config.scriptUrl) return null;
+  const result = await sheetWrite({ action:'uploadImage', imageBase64:base64Data, filename });
+  if (result && result.url) return result.url;
+  return null;
+}
+
+// ══════════════════════════════════════════
+//  FORM
+// ══════════════════════════════════════════
+function switchTab(name) {
+  const names=['entries','add','config'];
+  document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',names[i]===name));
+  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+  document.getElementById('tab-'+name).classList.add('active');
+}
+function resetForm() {
+  ['f-name','f-lat','f-lng','f-datetime','f-category','f-notes','f-images','f-row-id'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('form-section-title').textContent='New Entry';
+  document.getElementById('submit-btn').textContent='Save to Sheet';
+  stopPickMode(); switchTab('entries');
+}
+function startPickMode() {
+  pickMode=true;
+  document.getElementById('pick-notice').style.display='block';
+  document.getElementById('pick-btn').classList.add('active');
+  map.getCanvas().style.cursor='crosshair';
+  toast('Click the map to pick location');
+}
+function stopPickMode() {
+  pickMode=false;
+  document.getElementById('pick-notice').style.display='none';
+  const pb=document.getElementById('pick-btn');
+  if(pb) pb.classList.remove('active');
+  map.getCanvas().style.cursor='';
+}
+
+async function submitEntry() {
+  const name=document.getElementById('f-name').value.trim();
+  const lat=parseFloat(document.getElementById('f-lat').value);
+  const lng=parseFloat(document.getElementById('f-lng').value);
+  const datetime=document.getElementById('f-datetime').value;
+  const category=document.getElementById('f-category').value.trim();
+  const notes=document.getElementById('f-notes').value.trim();
+  const images=document.getElementById('f-images').value.trim();
+  const existId=document.getElementById('f-row-id').value;
+  if (!name) { toast('Name is required','err'); return; }
+  if (isNaN(lat)||isNaN(lng)) { toast('Valid coordinates required','err'); return; }
+  const rowId=existId||('mt-'+Date.now());
+  const entry={id:rowId,name,lat,lng,datetime,category,notes,images};
+  if (existId) {
+    const idx=entries.findIndex(e=>e.id===existId);
+    if(idx>-1) entries[idx]=entry;
+    await sheetWrite({action:'update',rowId,name,lat,lng,datetime,category,notes,images});
+    toast('Entry updated ✓','ok');
+  } else {
+    entries.push(entry);
+    await sheetWrite({action:'append',rowId,name,lat,lng,datetime,category,notes,images});
+    toast('Entry added ✓','ok');
+  }
+  saveLocalEntries(); renderEntriesList(); resetForm();
+  selectDevice(name);
+}
+
+// ══════════════════════════════════════════
+//  EDIT / DELETE
+// ══════════════════════════════════════════
+function editEntry(id) {
+  const e=entries.find(x=>x.id===id); if(!e) return;
+  document.getElementById('f-name').value=e.name;
+  document.getElementById('f-lat').value=e.lat;
+  document.getElementById('f-lng').value=e.lng;
+  document.getElementById('f-datetime').value=e.datetime||'';
+  document.getElementById('f-category').value=e.category||'';
+  document.getElementById('f-notes').value=e.notes||'';
+  document.getElementById('f-images').value=e.images||'';
+  document.getElementById('f-row-id').value=e.id;
+  document.getElementById('form-section-title').textContent='Edit Entry';
+  document.getElementById('submit-btn').textContent='Update Entry';
+  switchTab('add');
+}
+async function deleteEntry(id) {
+  if(!confirm('Delete this entry?')) return;
+  const deleted=entries.find(e=>e.id===id);
+  entries=entries.filter(e=>e.id!==id);
+  await sheetWrite({action:'delete',rowId:id});
+  saveLocalEntries();
+  // If we just deleted the selected device's last remaining fix, deselect it.
+  if(deleted && deleted.name===selectedDevice && !entries.some(e=>e.name===selectedDevice)) {
+    selectedDevice=null;
+    closeDetailPopup();
+  }
+  renderEntriesList(); renderAllMarkers(); updateMapHint();
+  toast('Deleted','ok');
+}
+function editFromPopup()   { if(activeDetailId){editEntry(activeDetailId);closeDetailPopup();} }
+function deleteFromPopup() { if(activeDetailId) deleteEntry(activeDetailId); }
+
+// ══════════════════════════════════════════
+//  DEVICE LIST — sidebar groups the GPS trail by device (entry "name"),
+//  showing only device names. The map stays empty until one is clicked.
+// ══════════════════════════════════════════
+function filterEntries() { renderEntriesList(document.getElementById('search-input').value.toLowerCase()); }
+
+function getEntryImages(e) {
+  return (e.images||'').split(/[\n,]/).map(s=>s.trim()).filter(Boolean);
+}
+
+// One row per unique device name, using that device's most recent fix
+// (last occurrence in the synced trail = latest, since rows append in order).
+function getDeviceList() {
+  const byName = {};
+  entries.forEach(e => { byName[e.name] = e; }); // later rows overwrite earlier ones
+  return Object.values(byName).sort((a,b)=>a.name.localeCompare(b.name));
+}
+
+function latestEntryForDevice(name) {
+  const rows = entries.filter(e=>e.name===name);
+  return rows.length ? rows[rows.length-1] : null;
+}
+
+function renderEntriesList(q='') {
+  const list=document.getElementById('entries-list');
+  const devices=getDeviceList().filter(e=>!q||e.name.toLowerCase().includes(q));
+  document.getElementById('entries-count').textContent=devices.length;
+  if(!devices.length) {
+    list.innerHTML=`<div class="empty-state"><div class="big">${q?'🔍':'📭'}</div>${q?'No results for "'+q+'"':'Paste CSV URL in Sheet tab and Sync.'}</div>`;
+    updateMapHint();
+    return;
+  }
+  list.innerHTML=devices.map(e=>{
+    const imgs=getEntryImages(e);
+    const selected=e.name===selectedDevice?' selected':'';
+    return `
+    <div class="entry-card${selected}" id="card-${htmlEsc(e.name)}" onclick="selectDevice('${htmlEsc(e.name)}')">
+      <div class="entry-info">
+        <div class="entry-name">📟 ${htmlEsc(e.name)}</div>
+        <div class="entry-meta">
+          ${e.category?`<span class="badge badge-blue">${htmlEsc(e.category)}</span>`:''}
+          ${imgs.length?`<span style="color:var(--accent2);font-size:10px">🖼 ${imgs.length} photo${imgs.length>1?'s':''}</span>`:''}
+          ${e.datetime?`<span>Last seen ${fmtDate(e.datetime)}</span>`:''}
+        </div>
+        <div class="entry-actions">
+          <div class="icon-btn" onclick="event.stopPropagation();editEntry('${e.id}')" title="Edit">✏</div>
+          <div class="icon-btn del" onclick="event.stopPropagation();deleteEntry('${e.id}')" title="Delete">🗑</div>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+  updateMapHint();
+}
+
+function selectDevice(name) {
+  const e=latestEntryForDevice(name); if(!e) return;
+  selectedDevice=name;
+  document.querySelectorAll('.entry-card').forEach(c=>c.classList.remove('selected'));
+  const card=document.getElementById('card-'+name);
+  if(card){card.classList.add('selected');card.scrollIntoView({block:'nearest',behavior:'smooth'});}
+  renderAllMarkers();
+  map.flyTo({center:[e.lng,e.lat],zoom:15,duration:700});
+  openDetailPopup(e);
+  updateMapHint();
+}
+
+function deselectDevice() {
+  selectedDevice=null;
+  closeDetailPopup();
+  renderAllMarkers();
+  updateMapHint();
+  document.querySelectorAll('.entry-card').forEach(c=>c.classList.remove('selected'));
+}
+
+function updateMapHint() {
+  const hint=document.getElementById('no-entries-map');
+  if(!entries.length) {
+    hint.innerHTML='No entries yet.<br/>Sync your sheet to load devices.';
+    hint.style.display='block';
+  } else if(!selectedDevice) {
+    hint.innerHTML='Select a device on the left<br/>to see its location.';
+    hint.style.display='block';
+  } else {
+    hint.style.display='none';
+  }
+}
+
+// ══════════════════════════════════════════
+//  MARKERS
+// ══════════════════════════════════════════
+function makeMarkerEl() {
+  const el=document.createElement('div');
+  el.style.cssText='width:28px;height:28px;border-radius:50% 50% 50% 0;background:#3b82f6;border:2px solid #fff;transform:rotate(-45deg);cursor:pointer;box-shadow:0 2px 8px #0008;transition:transform .15s,box-shadow .15s;';
+  el.onmouseenter=()=>{el.style.transform='rotate(-45deg) scale(1.2)';el.style.boxShadow='0 4px 16px #3b82f6aa';};
+  el.onmouseleave=()=>{el.style.transform='rotate(-45deg)';el.style.boxShadow='0 2px 8px #0008';};
+  return el;
+}
+// Only the currently selected device's latest fix is ever plotted —
+// nothing shows on the map until a device is picked from the sidebar.
+function renderAllMarkers(){
+  if(currentMarker){currentMarker.remove();currentMarker=null;}
+  if(!selectedDevice) return;
+  const e=latestEntryForDevice(selectedDevice);
+  if(e) addMarker(e);
+}
+function addMarker(e) {
+  const el=makeMarkerEl();
+  currentMarker=new maplibregl.Marker({element:el,anchor:'bottom-left'}).setLngLat([e.lng,e.lat]).addTo(map);
+  el.addEventListener('click',(ev)=>{ev.stopPropagation();openDetailPopup(e);});
+}
+
+// ══════════════════════════════════════════
+//  DETAIL POPUP
+// ══════════════════════════════════════════
+function openDetailPopup(e) {
+  activeDetailId=e.id;
+  document.getElementById('dp-name').textContent=e.name||'—';
+  document.getElementById('dp-date').textContent=e.datetime?fmtDate(e.datetime):'—';
+  document.getElementById('dp-cat').textContent=e.category||'—';
+  document.getElementById('dp-coords').textContent=`${e.lat.toFixed(5)}, ${e.lng.toFixed(5)}`;
+  document.getElementById('dp-notes').textContent=e.notes||'—';
+  const imgs=getEntryImages(e);
+  const thumbWrap=document.getElementById('dp-thumb-wrap');
+  const viewBtn=document.getElementById('dp-view-btn');
+  if(imgs.length){
+    document.getElementById('dp-thumb').src=imgs[0];
+    thumbWrap.style.display='block';
+    viewBtn.style.display='inline-flex';
+    viewBtn.textContent=`🖼 View ${imgs.length} Image${imgs.length>1?'s':''}`;
+  } else {
+    thumbWrap.style.display='none';
+    viewBtn.style.display='none';
+  }
+  document.getElementById('detail-popup').classList.add('open');
+}
+function closeDetailPopup(){document.getElementById('detail-popup').classList.remove('open');activeDetailId=null;}
+function openViewerFromPopup(){if(activeDetailId)openViewer(activeDetailId,0);}
+
+// ══════════════════════════════════════════
+//  FULLSCREEN IMAGE VIEWER
+// ══════════════════════════════════════════
+function openViewer(entryId, startIdx=0) {
+  const e=entries.find(x=>x.id===entryId); if(!e) return;
+  viewerImages=getEntryImages(e);
+  if(!viewerImages.length){toast('No images for this entry','warn');return;}
+  viewerIdx=startIdx;
+  document.getElementById('viewer-title').textContent=e.name||'—';
+  document.getElementById('viewer-coords').textContent=`📍 ${e.lat.toFixed(5)}, ${e.lng.toFixed(5)}`;
+  document.getElementById('viewer-date').textContent=e.datetime?`📅 ${fmtDate(e.datetime)}`:'';
+  document.getElementById('viewer-cat').textContent=e.category?`🏷 ${e.category}`:'';
+  renderViewerStrip();
+  setViewerImage(viewerIdx);
+  document.getElementById('img-viewer').classList.add('open');
+  document.addEventListener('keydown', viewerKeyHandler);
+}
+
+function closeViewer() {
+  document.getElementById('img-viewer').classList.remove('open');
+  document.removeEventListener('keydown', viewerKeyHandler);
+}
+
+function viewerKeyHandler(e) {
+  if(e.key==='ArrowRight') viewerNav(1);
+  else if(e.key==='ArrowLeft') viewerNav(-1);
+  else if(e.key==='Escape') closeViewer();
+}
+
+function setViewerImage(idx) {
+  viewerIdx=Math.max(0,Math.min(idx,viewerImages.length-1));
+  const img=document.getElementById('viewer-img');
+  img.style.opacity='0';
+  img.src=viewerImages[viewerIdx];
+  img.onload=()=>{ img.style.opacity='1'; };
+  document.getElementById('viewer-counter').textContent=`${viewerIdx+1} / ${viewerImages.length}`;
+  document.getElementById('viewer-prev').style.display=viewerIdx>0?'flex':'none';
+  document.getElementById('viewer-next').style.display=viewerIdx<viewerImages.length-1?'flex':'none';
+  // update strip active
+  document.querySelectorAll('.strip-thumb').forEach((t,i)=>t.classList.toggle('active',i===viewerIdx));
+}
+
+function viewerNav(dir) { setViewerImage(viewerIdx+dir); }
+
+function renderViewerStrip() {
+  document.getElementById('viewer-strip').innerHTML=viewerImages.map((url,i)=>
+    `<img class="strip-thumb${i===viewerIdx?' active':''}" src="${url}" onclick="setViewerImage(${i})" onerror="this.style.display='none'"/>`
+  ).join('');
+}
+
+// ══════════════════════════════════════════
+//  MAP UTILS
+// ══════════════════════════════════════════
+function fitAllMarkers() {
+  if(!selectedDevice) { toast('Select a device first','warn'); return; }
+  const e=latestEntryForDevice(selectedDevice); if(!e) return;
+  map.flyTo({center:[e.lng,e.lat],zoom:15});
+}
+function locateMe() {
+  navigator.geolocation.getCurrentPosition(
+    pos=>{map.flyTo({center:[pos.coords.longitude,pos.coords.latitude],zoom:14});toast('Moved to your location','ok');},
+    ()=>toast('Location access denied','err')
+  );
+}
+
+// ══════════════════════════════════════════
+//  MODAL / TOAST / HELPERS
+// ══════════════════════════════════════════
+function openSetupModal(){document.getElementById('setup-modal').classList.add('open');}
+document.getElementById('setup-modal').addEventListener('click',function(e){if(e.target===this)this.classList.remove('open');});
+function toast(msg,type=''){
+  const c=document.getElementById('toast-container');
+  const el=document.createElement('div');
+  el.className='toast '+type;el.textContent=msg;c.appendChild(el);
+  setTimeout(()=>el.remove(),3000);
+}
+function htmlEsc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function fmtDate(s){try{return new Date(s).toLocaleString('en-IN',{dateStyle:'medium',timeStyle:'short'});}catch{return s;}}
+document.getElementById('f-datetime').value=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,16);
+</script>
+</body>
+</html>
