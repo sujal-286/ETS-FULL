@@ -195,11 +195,7 @@
     <!-- ENTRIES TAB -->
     <div class="tab-panel active" id="tab-entries">
       <div class="entries-header">
-<<<<<<< HEAD
-        <input type="text" placeholder="Search entries…" id="search-input" oninput="filterEntries()"/>
-=======
         <input type="text" placeholder="Search devices…" id="search-input" oninput="filterEntries()"/>
->>>>>>> dcaa6c5 (Rename index and update gallery_server)
         <span class="entries-count" id="entries-count">0</span>
       </div>
       <div class="entries-list" id="entries-list">
@@ -276,15 +272,9 @@
       <button class="fab-btn" onclick="locateMe()">◎</button>
     </div>
     <div class="map-fab bottom-left">
-<<<<<<< HEAD
-      <button class="fab-btn" onclick="fitAllMarkers()">⛶ Fit All</button>
-    </div>
-    <div id="no-entries-map" class="no-entries-map">No entries yet.<br/>Sync your sheet to load pins.</div>
-=======
       <button class="fab-btn" onclick="fitAllMarkers()">⛶ Locate Device</button>
     </div>
     <div id="no-entries-map" class="no-entries-map">No entries yet.<br/>Sync your sheet to load devices.</div>
->>>>>>> dcaa6c5 (Rename index and update gallery_server)
 
     <!-- MAP DETAIL POPUP -->
     <div class="detail-popup" id="detail-popup">
@@ -444,16 +434,11 @@ function doGet(e) {
 // ══════════════════════════════════════════
 let entries = [], config = {};
 let colMap = { name:0, lat:1, lng:2, date:3, cat:4, notes:5, imgs:6, id:7 };
-<<<<<<< HEAD
-let markers = {}, pickMode = false, activeDetailId = null;
-let viewerImages = [], viewerIdx = 0;
-=======
 let currentMarker = null, pickMode = false, activeDetailId = null;
 let viewerImages = [], viewerIdx = 0;
 // Map is now gated on device selection: nothing is plotted until a
 // device name is picked from the sidebar list.
 let selectedDevice = null;
->>>>>>> dcaa6c5 (Rename index and update gallery_server)
 
 // ══════════════════════════════════════════
 //  INIT
@@ -558,14 +543,9 @@ async function syncFromSheet() {
     })).filter(e => e.lat!==0 && e.lng!==0 && e.name);
     if (!parsed.length) { toast('No valid entries — check column mapping','err'); return; }
     entries = parsed;
-<<<<<<< HEAD
-    saveLocalEntries(); renderEntriesList(); renderAllMarkers(); fitAllMarkers();
-    toast(`✓ Synced ${entries.length} entr${entries.length===1?'y':'ies'}`, 'ok');
-=======
     saveLocalEntries(); renderEntriesList(); renderAllMarkers();
     const deviceCount = getDeviceList().length;
     toast(`✓ Synced ${entries.length} point${entries.length===1?'':'s'} across ${deviceCount} device${deviceCount===1?'':'s'}`, 'ok');
->>>>>>> dcaa6c5 (Rename index and update gallery_server)
   } catch(err) {
     console.error(err);
     toast('Sync failed: '+err.message,'err');
@@ -660,13 +640,8 @@ async function submitEntry() {
     await sheetWrite({action:'append',rowId,name,lat,lng,datetime,category,notes,images});
     toast('Entry added ✓','ok');
   }
-<<<<<<< HEAD
-  saveLocalEntries(); renderEntriesList(); renderAllMarkers(); resetForm();
-  openDetailPopup(entry); map.flyTo({center:[lng,lat],zoom:14});
-=======
   saveLocalEntries(); renderEntriesList(); resetForm();
   selectDevice(name);
->>>>>>> dcaa6c5 (Rename index and update gallery_server)
 }
 
 // ══════════════════════════════════════════
@@ -688,14 +663,6 @@ function editEntry(id) {
 }
 async function deleteEntry(id) {
   if(!confirm('Delete this entry?')) return;
-<<<<<<< HEAD
-  entries=entries.filter(e=>e.id!==id);
-  if(markers[id]){markers[id].remove();delete markers[id];}
-  await sheetWrite({action:'delete',rowId:id});
-  saveLocalEntries(); renderEntriesList(); closeDetailPopup();
-  toast('Deleted','ok');
-  if(!entries.length) document.getElementById('no-entries-map').style.display='block';
-=======
   const deleted=entries.find(e=>e.id===id);
   entries=entries.filter(e=>e.id!==id);
   await sheetWrite({action:'delete',rowId:id});
@@ -707,18 +674,13 @@ async function deleteEntry(id) {
   }
   renderEntriesList(); renderAllMarkers(); updateMapHint();
   toast('Deleted','ok');
->>>>>>> dcaa6c5 (Rename index and update gallery_server)
 }
 function editFromPopup()   { if(activeDetailId){editEntry(activeDetailId);closeDetailPopup();} }
 function deleteFromPopup() { if(activeDetailId) deleteEntry(activeDetailId); }
 
 // ══════════════════════════════════════════
-<<<<<<< HEAD
-//  ENTRIES LIST — with thumbnails
-=======
 //  DEVICE LIST — sidebar groups the GPS trail by device (entry "name"),
 //  showing only device names. The map stays empty until one is clicked.
->>>>>>> dcaa6c5 (Rename index and update gallery_server)
 // ══════════════════════════════════════════
 function filterEntries() { renderEntriesList(document.getElementById('search-input').value.toLowerCase()); }
 
@@ -726,34 +688,6 @@ function getEntryImages(e) {
   return (e.images||'').split(/[\n,]/).map(s=>s.trim()).filter(Boolean);
 }
 
-<<<<<<< HEAD
-function renderEntriesList(q='') {
-  const list=document.getElementById('entries-list');
-  const filtered=entries.filter(e=>!q||e.name.toLowerCase().includes(q)||(e.category||'').toLowerCase().includes(q)||(e.notes||'').toLowerCase().includes(q));
-  document.getElementById('entries-count').textContent=filtered.length;
-  if(!filtered.length) {
-    list.innerHTML=`<div class="empty-state"><div class="big">${q?'🔍':'📭'}</div>${q?'No results for "'+q+'"':'Paste CSV URL in Sheet tab and Sync.'}</div>`;
-    return;
-  }
-  list.innerHTML=filtered.map(e=>{
-    const imgs=getEntryImages(e);
-    const thumbHTML=imgs.length
-      ? `<img class="entry-thumb" src="${imgs[0]}" alt="" onerror="this.style.display='none'" onclick="event.stopPropagation();openViewer('${e.id}',0)"/>`
-      : '';
-    return `
-    <div class="entry-card" id="card-${e.id}" onclick="focusEntry('${e.id}')">
-      ${thumbHTML}
-      <div class="entry-info">
-        <div class="entry-name">${htmlEsc(e.name)}</div>
-        <div class="entry-meta">
-          ${e.category?`<span class="badge badge-blue">${htmlEsc(e.category)}</span>`:''}
-          ${imgs.length?`<span style="color:var(--accent2);font-size:10px">🖼 ${imgs.length} photo${imgs.length>1?'s':''}</span>`:''}
-          ${e.datetime?`<span>${fmtDate(e.datetime)}</span>`:''}
-        </div>
-        <div class="entry-coords">${e.lat.toFixed(4)}, ${e.lng.toFixed(4)}</div>
-        <div class="entry-actions">
-          ${imgs.length?`<div class="icon-btn view" onclick="event.stopPropagation();openViewer('${e.id}',0)" title="View images">🖼</div>`:''}
-=======
 // One row per unique device name, using that device's most recent fix
 // (last occurrence in the synced trail = latest, since rows append in order).
 function getDeviceList() {
@@ -789,25 +723,12 @@ function renderEntriesList(q='') {
           ${e.datetime?`<span>Last seen ${fmtDate(e.datetime)}</span>`:''}
         </div>
         <div class="entry-actions">
->>>>>>> dcaa6c5 (Rename index and update gallery_server)
           <div class="icon-btn" onclick="event.stopPropagation();editEntry('${e.id}')" title="Edit">✏</div>
           <div class="icon-btn del" onclick="event.stopPropagation();deleteEntry('${e.id}')" title="Delete">🗑</div>
         </div>
       </div>
     </div>`;
   }).join('');
-<<<<<<< HEAD
-  document.getElementById('no-entries-map').style.display=entries.length?'none':'block';
-}
-
-function focusEntry(id) {
-  const e=entries.find(x=>x.id===id); if(!e) return;
-  map.flyTo({center:[e.lng,e.lat],zoom:15,duration:700});
-  openDetailPopup(e);
-  document.querySelectorAll('.entry-card').forEach(c=>c.classList.remove('selected'));
-  const card=document.getElementById('card-'+id);
-  if(card){card.classList.add('selected');card.scrollIntoView({block:'nearest'});}
-=======
   updateMapHint();
 }
 
@@ -842,7 +763,6 @@ function updateMapHint() {
   } else {
     hint.style.display='none';
   }
->>>>>>> dcaa6c5 (Rename index and update gallery_server)
 }
 
 // ══════════════════════════════════════════
@@ -855,19 +775,6 @@ function makeMarkerEl() {
   el.onmouseleave=()=>{el.style.transform='rotate(-45deg)';el.style.boxShadow='0 2px 8px #0008';};
   return el;
 }
-<<<<<<< HEAD
-function renderAllMarkers(){Object.values(markers).forEach(m=>m.remove());markers={};entries.forEach(addMarker);}
-function addMarker(e) {
-  const el=makeMarkerEl();
-  const m=new maplibregl.Marker({element:el,anchor:'bottom-left'}).setLngLat([e.lng,e.lat]).addTo(map);
-  el.addEventListener('click',(ev)=>{ev.stopPropagation();openDetailPopup(e);focusCard(e.id);});
-  markers[e.id]=m;
-}
-function focusCard(id) {
-  document.querySelectorAll('.entry-card').forEach(c=>c.classList.remove('selected'));
-  const card=document.getElementById('card-'+id);
-  if(card){card.classList.add('selected');card.scrollIntoView({block:'nearest',behavior:'smooth'});}
-=======
 // Only the currently selected device's latest fix is ever plotted —
 // nothing shows on the map until a device is picked from the sidebar.
 function renderAllMarkers(){
@@ -880,7 +787,6 @@ function addMarker(e) {
   const el=makeMarkerEl();
   currentMarker=new maplibregl.Marker({element:el,anchor:'bottom-left'}).setLngLat([e.lng,e.lat]).addTo(map);
   el.addEventListener('click',(ev)=>{ev.stopPropagation();openDetailPopup(e);});
->>>>>>> dcaa6c5 (Rename index and update gallery_server)
 }
 
 // ══════════════════════════════════════════
@@ -964,15 +870,9 @@ function renderViewerStrip() {
 //  MAP UTILS
 // ══════════════════════════════════════════
 function fitAllMarkers() {
-<<<<<<< HEAD
-  if(!entries.length) return;
-  const lngs=entries.map(e=>e.lng),lats=entries.map(e=>e.lat);
-  map.fitBounds([[Math.min(...lngs),Math.min(...lats)],[Math.max(...lngs),Math.max(...lats)]],{padding:60,maxZoom:15});
-=======
   if(!selectedDevice) { toast('Select a device first','warn'); return; }
   const e=latestEntryForDevice(selectedDevice); if(!e) return;
   map.flyTo({center:[e.lng,e.lat],zoom:15});
->>>>>>> dcaa6c5 (Rename index and update gallery_server)
 }
 function locateMe() {
   navigator.geolocation.getCurrentPosition(
