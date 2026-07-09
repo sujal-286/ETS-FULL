@@ -95,17 +95,12 @@ def serve_image(img_id):
 
 
 @app.route("/")
-@app.route("/index.html")
-def dashboard_page():
-    # Your MapTrack GPS dashboard — talks to Google Sheets directly client-side,
-    # served here purely so the Gallery link between the two pages works over
-    # http:// instead of breaking under file://.
-    return send_from_directory(BASE_DIR, "index.html")
-
-
 @app.route("/gallery")
 @app.route("/image_gallery.html")
 def gallery_page():
+    # This deployment only hosts the gallery — the MapTrack dashboard
+    # (index.html) stays local and talks to Google Sheets directly,
+    # so it isn't served from here.
     return send_from_directory(BASE_DIR, "image_gallery.html")
 
 
