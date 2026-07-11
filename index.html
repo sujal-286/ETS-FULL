@@ -434,7 +434,7 @@ function doGet(e) {
 // ══════════════════════════════════════════
 let entries = [], config = {};
 let colMap = { name:0, lat:1, lng:2, date:3, cat:4, notes:5, imgs:6, id:7 };
-let currentMarker = null, pickMode = false, activeDetailId = null;
+let currentMarkers = [], pickMode = false, activeDetailId = null;
 let viewerImages = [], viewerIdx = 0;
 // Map is now gated on device selection: nothing is plotted until a
 // device name is picked from the sidebar list.
@@ -453,7 +453,15 @@ const map = new maplibregl.Map({
 });
 map.addControl(new maplibregl.ScaleControl({unit:'metric'}), 'bottom-right');
 map.addControl(new maplibregl.NavigationControl({showCompass:true}), 'top-right');
-map.on('load', () => { renderAllMarkers(); updateConnectionStatus(); });
+map.on('load', () => {
+  map.addSource('device-route', { type:'geojson', data:{type:'FeatureCollection',features:[]} });
+  map.addLayer({
+    id:'device-route-line', type:'line', source:'device-route',
+    layout:{ 'line-cap':'round', 'line-join':'round' },
+    paint:{ 'line-color':'#c0c0c0', 'line-width':3, 'line-opacity':0.85 }
+  });
+  renderAllMarkers(); updateConnectionStatus();
+});
 map.on('click', (e) => {
   if (!pickMode) return;
   document.getElementById('f-lat').value = e.lngLat.lat.toFixed(6);
@@ -696,9 +704,21 @@ function getDeviceList() {
   return Object.values(byName).sort((a,b)=>a.name.localeCompare(b.name));
 }
 
-function latestEntryForDevice(name) {
+// Full chronological history of fixes for one device — oldest first.
+// Sorted by actual datetime where parseable; falls back to sheet order
+// (stable sort) if timestamps are missing/unparseable.
+function deviceTrail(name) {
   const rows = entries.filter(e=>e.name===name);
-  return rows.length ? rows[rows.length-1] : null;
+  return rows.slice().sort((a,b)=>{
+    const ta=Date.parse(a.datetime), tb=Date.parse(b.datetime);
+    if(isNaN(ta)||isNaN(tb)) return 0;
+    return ta-tb;
+  });
+}
+
+function latestEntryForDevice(name) {
+  const trail=deviceTrail(name);
+  return trail.length ? trail[trail.length-1] : null;
 }
 
 function renderEntriesList(q='') {
@@ -733,14 +753,19 @@ function renderEntriesList(q='') {
 }
 
 function selectDevice(name) {
-  const e=latestEntryForDevice(name); if(!e) return;
+  const trail=deviceTrail(name); if(!trail.length) return;
   selectedDevice=name;
   document.querySelectorAll('.entry-card').forEach(c=>c.classList.remove('selected'));
   const card=document.getElementById('card-'+name);
   if(card){card.classList.add('selected');card.scrollIntoView({block:'nearest',behavior:'smooth'});}
   renderAllMarkers();
-  map.flyTo({center:[e.lng,e.lat],zoom:15,duration:700});
-  openDetailPopup(e);
+  if(trail.length===1) {
+    map.flyTo({center:[trail[0].lng,trail[0].lat],zoom:15,duration:700});
+  } else {
+    const lngs=trail.map(e=>e.lng), lats=trail.map(e=>e.lat);
+    map.fitBounds([[Math.min(...lngs),Math.min(...lats)],[Math.max(...lngs),Math.max(...lats)]],{padding:80,maxZoom:16,duration:700});
+  }
+  openDetailPopup(trail[trail.length-1]); // latest point's details, by default
   updateMapHint();
 }
 
@@ -768,25 +793,43 @@ function updateMapHint() {
 // ══════════════════════════════════════════
 //  MARKERS
 // ══════════════════════════════════════════
-function makeMarkerEl() {
+function makeMarkerEl(isLatest) {
   const el=document.createElement('div');
-  el.style.cssText='width:28px;height:28px;border-radius:50% 50% 50% 0;background:#3b82f6;border:2px solid #fff;transform:rotate(-45deg);cursor:pointer;box-shadow:0 2px 8px #0008;transition:transform .15s,box-shadow .15s;';
-  el.onmouseenter=()=>{el.style.transform='rotate(-45deg) scale(1.2)';el.style.boxShadow='0 4px 16px #3b82f6aa';};
+  const color = isLatest ? '#ef4444' : '#eab308'; // current = red, past points = yellow
+  const size = isLatest ? 30 : 20;
+  el.style.cssText=`width:${size}px;height:${size}px;border-radius:50% 50% 50% 0;background:${color};border:2px solid #fff;transform:rotate(-45deg);cursor:pointer;box-shadow:0 2px 8px #0008;transition:transform .15s,box-shadow .15s;${isLatest?'z-index:5;':'z-index:1;'}`;
+  el.onmouseenter=()=>{el.style.transform='rotate(-45deg) scale(1.25)';el.style.boxShadow=`0 4px 16px ${color}aa`;};
   el.onmouseleave=()=>{el.style.transform='rotate(-45deg)';el.style.boxShadow='0 2px 8px #0008';};
   return el;
 }
-// Only the currently selected device's latest fix is ever plotted —
-// nothing shows on the map until a device is picked from the sidebar.
+function emptyRoute(){ return {type:'FeatureCollection',features:[]}; }
+
+// Plots the SELECTED device's entire history: a silver line tracing the
+// route in time order, a yellow pin at every past fix, and one red pin
+// at the most recent fix. Nothing shows until a device is selected.
 function renderAllMarkers(){
-  if(currentMarker){currentMarker.remove();currentMarker=null;}
-  if(!selectedDevice) return;
-  const e=latestEntryForDevice(selectedDevice);
-  if(e) addMarker(e);
+  currentMarkers.forEach(m=>m.remove()); currentMarkers=[];
+  const src = map.getSource && map.getSource('device-route');
+
+  if(!selectedDevice) { if(src) src.setData(emptyRoute()); return; }
+
+  const trail = deviceTrail(selectedDevice);
+  if(!trail.length) { if(src) src.setData(emptyRoute()); return; }
+
+  if(src) {
+    src.setData({
+      type:'Feature',
+      geometry:{ type:'LineString', coordinates: trail.map(e=>[e.lng,e.lat]) }
+    });
+  }
+
+  trail.forEach((e,i)=> addMarker(e, i===trail.length-1));
 }
-function addMarker(e) {
-  const el=makeMarkerEl();
-  currentMarker=new maplibregl.Marker({element:el,anchor:'bottom-left'}).setLngLat([e.lng,e.lat]).addTo(map);
+function addMarker(e, isLatest) {
+  const el=makeMarkerEl(isLatest);
+  const m=new maplibregl.Marker({element:el,anchor:'bottom-left'}).setLngLat([e.lng,e.lat]).addTo(map);
   el.addEventListener('click',(ev)=>{ev.stopPropagation();openDetailPopup(e);});
+  currentMarkers.push(m);
 }
 
 // ══════════════════════════════════════════
@@ -871,8 +914,10 @@ function renderViewerStrip() {
 // ══════════════════════════════════════════
 function fitAllMarkers() {
   if(!selectedDevice) { toast('Select a device first','warn'); return; }
-  const e=latestEntryForDevice(selectedDevice); if(!e) return;
-  map.flyTo({center:[e.lng,e.lat],zoom:15});
+  const trail=deviceTrail(selectedDevice); if(!trail.length) return;
+  if(trail.length===1) { map.flyTo({center:[trail[0].lng,trail[0].lat],zoom:15}); return; }
+  const lngs=trail.map(e=>e.lng), lats=trail.map(e=>e.lat);
+  map.fitBounds([[Math.min(...lngs),Math.min(...lats)],[Math.max(...lngs),Math.max(...lats)]],{padding:80,maxZoom:16});
 }
 function locateMe() {
   navigator.geolocation.getCurrentPosition(
