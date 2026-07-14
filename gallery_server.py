@@ -11,6 +11,13 @@ Images auto-expire and are dropped from memory 5 minutes after
 upload. Restarting the server also clears everything immediately,
 which is fine since nothing is meant to outlive 5 minutes anyway.
 
+Timestamps are stored as timezone-aware UTC datetimes and serialized
+with an explicit UTC offset (e.g. "...+00:00"), so the browser's
+JavaScript Date parser interprets them correctly regardless of the
+viewer's local timezone. A naive (timezone-less) timestamp here was
+previously causing the expiry countdown to appear to expire images
+instantly for anyone not in the server's own timezone.
+
 Endpoints:
   POST /upload       -> ESP32 (or browser) sends a JPEG here.
                          Query params: ?device=..&lat=..&lng=..
@@ -34,7 +41,7 @@ see the deploy instructions.
 """
 
 from flask import Flask, request, jsonify, send_from_directory, Response
-from datetime import datetime
+from datetime import datetime, timezone
 import os
 import threading
 import time
@@ -46,7 +53,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 EXPIRY_SECONDS = 5 * 60  # images live for 5 minutes
 
 # In-memory registry only — nothing touches disk.
-# { id: {data: bytes, timestamp: datetime, lat: float|None, lng: float|None, device: str|None} }
+# { id: {data: bytes, timestamp: aware datetime (UTC), lat: float|None, lng: float|None, device: str|None} }
 images = {}
 lock = threading.Lock()
 
@@ -65,7 +72,7 @@ def upload():
     with lock:
         images[img_id] = {
             "data": data,
-            "timestamp": datetime.now(),
+            "timestamp": datetime.now(timezone.utc),
             "lat": float(lat) if lat else None,
             "lng": float(lng) if lng else None,
             "device": device or "Unknown device",
@@ -82,6 +89,8 @@ def list_images():
         result = [
             {
                 "id": img_id,
+                # isoformat() on a UTC-aware datetime yields a "+00:00" suffix,
+                # which JS's Date parser reads as UTC unambiguously.
                 "timestamp": meta["timestamp"].isoformat(timespec="seconds"),
                 "lat": meta["lat"],
                 "lng": meta["lng"],
@@ -103,6 +112,7 @@ def serve_image(img_id):
 
 
 @app.route("/")
+@app.route("/index.html")
 def dashboard_page():
     # Dashboard is the landing page. It reads/writes its data via the
     # Google Sheets CSV export + Apps Script endpoints configured in its
@@ -117,7 +127,7 @@ def gallery_page():
 
 
 def cleanup_expired():
-    now = datetime.now()
+    now = datetime.now(timezone.utc)
     with lock:
         expired = [i for i, m in images.items()
                    if (now - m["timestamp"]).total_seconds() > EXPIRY_SECONDS]
