@@ -263,6 +263,10 @@
           <div class="field-group"><label>Row ID col #</label><input id="col-id" type="number" value="8" min="1"/></div>
         </div>
         <button class="btn btn-ghost btn-sm" onclick="saveColumnMap()">Save Column Map</button>
+
+        <div class="section-title" style="margin-top:8px">Local Cache</div>
+        <span class="hint">The map/list shows a locally-cached copy so it loads instantly, then updates on Sync. If it ever looks out of sync with the Sheet (e.g. showing old test data after clearing the Sheet), clear the cache below and re-sync.</span>
+        <button class="btn btn-ghost btn-sm" style="border-color:var(--danger);color:var(--danger)" onclick="clearLocalCache()">🗑 Clear Local Cache</button>
       </div>
     </div>
   </div>
@@ -529,6 +533,16 @@ function updateConnectionStatus() {
 function saveLocalEntries() { localStorage.setItem('maptrack_entries', JSON.stringify(entries)); }
 function loadLocalEntries() {
   try { entries = JSON.parse(localStorage.getItem('maptrack_entries')||'[]'); renderEntriesList(); } catch(e) {}
+}
+function clearLocalCache() {
+  if(!confirm('Clear the locally cached entries? This only clears what your browser has stored — your Google Sheet is untouched. You should Sync again right after.')) return;
+  localStorage.removeItem('maptrack_entries');
+  entries = [];
+  selectedDevice = null;
+  closeDetailPopup();
+  document.getElementById('workspace').classList.add('landing');
+  renderEntriesList(); renderAllMarkers();
+  toast('Local cache cleared — hit ↻ Sync to reload from the Sheet','ok');
 }
 
 // ══════════════════════════════════════════
